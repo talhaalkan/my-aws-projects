@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  This CloudFormation Template is for a static website application named Kittens Carousel and deployed on AWS Simple Storage Service(S3), served through CloudFront and Route 53 
+
+Parameters:
+  DNSnameOfHostedZone:
+    Description: Select DNS name of existing Route53 hosted zone
+    Type: AWS::Route53::HostedZone::Id
+
+  RootDomainName:
+    Description: Write domain name for your website (example.com)
+    Type: String
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      S3hostedzoneID: Z08117892K9DIP0W0690Z
+      websiteendpoint: talkan.live.s3-website-us-east-1.amazonaws.com  
+
+  
+Resources:
+
+  MyCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref RootDomainName
+      
+  myDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        Origins:
+        - DomainName: www.example.com
+          Id: myCustomOrigin
+          CustomOriginConfig:
+            HTTPPort: '80'
+            HTTPSPort: '443'
+            OriginProtocolPolicy: http-only
+        Enabled: 'true'
+        Comment: Somecomment
+        DefaultRootObject: index.html
+        Logging:
+          IncludeCookies: 'true'
+          Bucket: mylogs.s3.amazonaws.com
+          Prefix: myprefix
+        Aliases:
+        - mysite.example.com
+        - "*.yoursite.example.com"
+        DefaultCacheBehavior:
+          TargetOriginId: myCustomOrigin
+          SmoothStreaming: 'false'
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: all
+          TrustedSigners:
+          - 1234567890EX
+          - 1234567891EX
+          ViewerProtocolPolicy: allow-all
+        CustomErrorResponses:
+        - ErrorCode: '404'
+          ResponsePagePath: "/error-pages/404.html"
+          ResponseCode: '200'
+          ErrorCachingMinTTL: '30'
+        PriceClass: PriceClass_200
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: whitelist
+            Locations:
+            - AQ
+            - CV
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+
+  myHostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: "talkan.live"
+
+  mybucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref RootDomainName
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+
+  myWWWbucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub
+          - www.${Domain}
+          - Domain: !Ref RootDomainName
+      AccessControl: BucketOwnerFullControl
+      WebsiteConfiguration:
+        RedirectAllRequestsTo:
+          HostName: !Ref mybucket
+
+  myDNS:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneName: !Sub 
+          - ${Domain}.
+          - Domain: !Ref RootDomainName
+      RecordSets:
+      - 
+        Name: !Ref RootDomainName
+        Type: A
+        AliasTarget:
+          HostedZoneId: !FindInMap [ RegionMap, !Ref 'AWS::Region', S3hostedzoneID]
+          DNSName: !FindInMap [ RegionMap, !Ref 'AWS::Region', websiteendpoint]
+      -
+        Name: !Sub
+            - www.${Domain}
+            - Domain: !Ref RootDomainName
+        Type: CNAME
+        TTL: 900
+        ResourceRecords:
+        - !GetAtt mybucket
+
